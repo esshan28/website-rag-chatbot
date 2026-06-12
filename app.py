@@ -139,7 +139,7 @@ else:
                 # Only decode the newly generated tokens
                 new_tokens = output_ids[0][input_ids.shape[-1]:]
                 answer = tokenizer.decode(new_tokens, skip_special_tokens=True)
-git add app.py requirements.txt .gitignore
+
                 st.write(answer)
 
                 with st.expander("🔍 Retrieved context (debug)"):
