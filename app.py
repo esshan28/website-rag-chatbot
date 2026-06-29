@@ -1,14 +1,15 @@
 import os
 os.environ["USER_AGENT"] = "website-rag-chatbot/1.0"
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import InMemoryVectorStore
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-torch.set_num_threads(os.cpu_count())
+from huggingface_hub import InferenceClient
 
 # ---------------------------
 # PAGE CONFIG
@@ -18,21 +19,22 @@ st.title("🌐 Website RAG Chatbot")
 st.caption("Paste a website URL, then ask questions about its content.")
 
 # ---------------------------
-# LOAD MODELS (cached so they only load once)
+# LOAD MODELS (cached)
 # ---------------------------
 @st.cache_resource(show_spinner=False)
 def load_embeddings():
-    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 @st.cache_resource(show_spinner=False)
-def load_llm():
-    model_name = "Qwen/Qwen2.5-0.5B-Instruct"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float32)
-    return tokenizer, model
+def load_hf_client():
+    hf_token = os.environ.get("HF_TOKEN")
+    return InferenceClient(
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        token=hf_token
+    )
 
 embeddings = load_embeddings()
-tokenizer, model = load_llm()
+hf_client = load_hf_client()
 
 # ---------------------------
 # SESSION STATE
@@ -107,38 +109,26 @@ else:
                 records = st.session_state.vector_db.similarity_search(question, k=3)
                 context = "\n\n".join(doc.page_content for doc in records)
 
-                # Build prompt using chat template
-                system_msg = (
-                    "You are a helpful assistant that answers questions about a website "
-                    "using only the provided context. If the answer is not in the context, "
-                    "say you don't know."
-                )
-                user_msg = f"Context:\n{context}\n\nQuestion: {question}"
-
-                messages = [
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": user_msg},
-                ]
-
-                inputs = tokenizer.apply_chat_template(
-                    messages,
-                    add_generation_prompt=True,
-                    return_tensors="pt",
-                    return_dict=True
-                )
-                input_ids = inputs["input_ids"]
-
-                # Generate answer
-                output_ids = model.generate(
-                    **inputs,
-                    max_new_tokens=128,
-                    do_sample=False,
-                    pad_token_id=tokenizer.eos_token_id
+                # HF Inference API call
+                response = hf_client.chat_completion(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a helpful assistant that answers questions "
+                                "about a website using only the provided context. "
+                                "If the answer is not in the context, say you don't know."
+                            )
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Context:\n{context}\n\nQuestion: {question}"
+                        }
+                    ],
+                    max_tokens=256,
                 )
 
-                # Only decode the newly generated tokens
-                new_tokens = output_ids[0][input_ids.shape[-1]:]
-                answer = tokenizer.decode(new_tokens, skip_special_tokens=True)
+                answer = response.choices[0].message.content
 
                 st.write(answer)
 
