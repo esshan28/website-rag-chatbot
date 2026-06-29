@@ -2,10 +2,6 @@ streamlit
 langchain
 langchain-community
 langchain-huggingface
-langchain-text-splitters
-huggingface-hub
-beautifulsoup4
-python-dotenv
+huggingface_hub
 sentence-transformers
-transformers
-torch
+python-dotenv
